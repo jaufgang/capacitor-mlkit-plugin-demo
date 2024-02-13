@@ -1,0 +1,21 @@
+{
+  "singleQuote": true,
+	"useTabs": true,
+	"tabWidth": 2,
+	"proseWrap": "always",
+  "trailingComma": "all",
+  "overrides": [
+    {
+      "files": ["**/*.json", "**/*.*rc"],
+      "options": {
+        "trailingComma": "none"
+      }
+    },
+    {
+      "files": ["**/*.page.html"],
+      "options": {
+        "parser": "angular"
+      }
+    }
+  ]
+}

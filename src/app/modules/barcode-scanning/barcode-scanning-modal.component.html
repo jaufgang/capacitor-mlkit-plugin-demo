@@ -1,0 +1,54 @@
+<ion-header>
+	<ion-toolbar>
+		<ion-title>Scanning</ion-title>
+		<ion-buttons slot="end">
+			<ion-button (click)="closeModal()">
+				<ion-icon name="close"></ion-icon>
+			</ion-button>
+		</ion-buttons>
+	</ion-toolbar>
+</ion-header>
+
+<ion-content>
+	<ion-list class="results">
+		<ion-item *ngFor="let item of barcodesView$ | async">
+			<ion-icon
+				*ngIf="item.searchStatus === 'Scanned'"
+				name="eye-outline"
+				color="dark"
+				slot="start"
+			></ion-icon>
+			<ion-icon
+				*ngIf="item.searchStatus === 'Matched'"
+				name="shield-checkmark-outline"
+				color="dark"
+				slot="start"
+			></ion-icon>
+			<ion-icon
+				*ngIf="item.searchStatus === 'Rejected'"
+				name="ban-outline"
+				color="dark"
+				slot="start"
+			></ion-icon>
+			<ion-label>{{ item.searchStatus }} {{ item.value }}</ion-label>
+			<ion-badge slot="end">{{ item.count }}</ion-badge>
+		</ion-item>
+	</ion-list>
+
+	<!--	<div #square class="square"></div>-->
+	<div class="zoom-ratio-wrapper">
+		<ion-range
+			[min]="minZoomRatio"
+			[max]="maxZoomRatio"
+			[disabled]="minZoomRatio === undefined || maxZoomRatio === undefined"
+			(ionChange)="setZoomRatio($any($event))"
+		></ion-range>
+	</div>
+	@if (isTorchAvailable) {
+		<ion-fab slot="fixed" horizontal="end" vertical="bottom">
+			<ion-fab-button (click)="toggleTorch()">
+				<ion-icon name="flashlight"></ion-icon>
+			</ion-fab-button>
+		</ion-fab>
+	}
+</ion-content>

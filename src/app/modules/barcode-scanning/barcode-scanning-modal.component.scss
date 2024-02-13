@@ -1,0 +1,36 @@
+ion-content {
+	--background: transparent;
+}
+
+ion-toolbar {
+	background: white;
+}
+
+.results {
+	color: black;
+	background: rgba(255, 255, 255, 0.5);
+	text-shadow: 0px 0px 5px white;
+	ion-label {
+		color: black;
+	}
+}
+
+.square {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	border-radius: 16px;
+	width: 200px;
+	height: 200px;
+	border: 6px solid white;
+	box-shadow: 0 0 0 4000px rgba(0, 0, 0, 0.3);
+}
+
+.zoom-ratio-wrapper {
+	position: absolute;
+	left: 50%;
+	bottom: 16px;
+	transform: translateX(-50%);
+	width: 50%;
+}

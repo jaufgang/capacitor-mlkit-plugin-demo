@@ -6,6 +6,8 @@
 	"webDir": "www",
 	"plugins": {},
 	"cordova": {},
+	"loggingBehavior": "production",
+	"hideLogs": true,
 	"server": {
 		"url": "http://192.168.2.36:8100"
 	}

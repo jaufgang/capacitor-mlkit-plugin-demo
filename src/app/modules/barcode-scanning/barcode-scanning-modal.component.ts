@@ -17,11 +17,11 @@ import {
 	StartScanOptions,
 } from '@capacitor-mlkit/barcode-scanning';
 import { InputCustomEvent } from '@ionic/angular';
-import { delay, filter, map, mergeMap, of, pairwise, tap } from 'rxjs';
+import { delay, filter, mergeMap, of, Subject, tap } from 'rxjs';
 import { ComponentStore } from '@ngrx/component-store';
 
 const POSITIVE_SCAN_THRESHOLD = 3;
-const API_LATENCY_MS = 250;
+const API_LATENCY_MS = 2500;
 const KEEP_SCANNING_AFTER_MATCH = false;
 
 enum BarcodeSearchStatus {
@@ -33,6 +33,7 @@ enum BarcodeSearchStatus {
 type BarcodeScanResults = Barcode & {
 	count: number;
 	searchStatus: BarcodeSearchStatus;
+	timestamp: Date;
 };
 
 interface BarcodeScannerState {
@@ -56,9 +57,25 @@ export class BarcodeScanningModalComponent
 	@ViewChild('square')
 	public squareElement: ElementRef<HTMLDivElement> | undefined;
 
+	@ViewChild('overlayCanvas', { static: false })
+	public canvas: ElementRef<HTMLCanvasElement> | undefined;
+
+	cx: CanvasRenderingContext2D | null | undefined;
+
 	public isTorchAvailable = false;
 	public minZoomRatio: number | undefined;
 	public maxZoomRatio: number | undefined;
+
+	resizeCanvas() {
+		if (this.canvas) {
+			this.canvas.nativeElement.width = window.innerWidth;
+			this.canvas.nativeElement.height = window.innerHeight;
+		}
+		/**
+		 * Your drawings need to be inside this function otherwise they will be reset when
+		 * you resize the browser window and the canvas goes will be cleared.
+		 */
+	}
 
 	public ngOnInit(): void {
 		BarcodeScanner.isTorchAvailable().then((result) => {
@@ -67,13 +84,15 @@ export class BarcodeScanningModalComponent
 	}
 
 	public ngAfterViewInit(): void {
+		this.resizeCanvas();
 		setTimeout(() => {
 			this.startScan();
 		}, 250);
 	}
 
-	public ngOnDestroy(): void {
-		this.stopScan();
+	public async ngOnDestroy() {
+		await this.stopScan();
+		console.log('Destroy!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
 	}
 
 	public setZoomRatio(event: InputCustomEvent): void {
@@ -95,6 +114,8 @@ export class BarcodeScanningModalComponent
 		await BarcodeScanner.toggleTorch();
 	}
 
+	readonly barcodeScanned$ = new Subject<Barcode>();
+
 	private async startScan(): Promise<void> {
 		// Hide everything behind the modal (see `src/theme/variables.scss`)
 		document.querySelector('body')?.classList.add('barcode-scanning-active');
@@ -104,15 +125,18 @@ export class BarcodeScanningModalComponent
 			lensFacing: this.lensFacing,
 		};
 
-		const listener = await BarcodeScanner.addListener(
-			'barcodeScanned',
-			async (event) => {
-				this.ngZone.run(() => {
-					this.updateScanResults(event.barcode);
-				});
-			},
-		);
+		await BarcodeScanner.addListener('barcodeScanned', async (event) => {
+			this.ngZone.run(() => {
+				//this.updateScanResults(event.barcode);
+				this.barcodeScanned$.next(event.barcode);
+			});
+		});
+
 		await BarcodeScanner.startScan(options);
+
+		BarcodeScanner.getZoomRatio().then((zoomRatio) =>
+			console.log('zoom', zoomRatio),
+		);
 		void BarcodeScanner.getMinZoomRatio().then((result) => {
 			this.minZoomRatio = result.zoomRatio;
 		});
@@ -125,29 +149,34 @@ export class BarcodeScanningModalComponent
 
 	readonly scanResults$ = this.select((state) => state.scanResults);
 
-	readonly barcodesFilteredArray$ = this.scanResults$.pipe(
-		map((barcodes) =>
+	readonly barcodesFilteredArray$ = this.select(
+		this.scanResults$,
+		(barcodes) =>
 			Object.values(barcodes)
 				.filter((item) => item.count >= POSITIVE_SCAN_THRESHOLD)
 				.sort((a, b) => b.count - a.count),
-		),
+		{ debounce: true },
 	);
 
-	readonly newBarcode$ = this.barcodesFilteredArray$.pipe(
-		map((barcodes) => barcodes.slice(-1)[0]),
+	readonly newBarcode$ = this.select(
+		this.barcodesFilteredArray$,
+		(barcodes) => barcodes.slice(-1)[0],
+		{ debounce: true },
+	).pipe(
 		filter(isNotNullOrUndefined),
 		filter((barcode) => barcode?.count === POSITIVE_SCAN_THRESHOLD),
 		tap((nb) => console.log('nb', nb)),
 	);
 
-	readonly barcodesView$ = this.barcodesFilteredArray$.pipe(
-		map((array) =>
+	readonly barcodesView$ = this.select(
+		this.barcodesFilteredArray$,
+		(array) =>
 			array.map((barcode) => ({
 				count: barcode.count,
 				value: barcode.displayValue,
 				searchStatus: barcode.searchStatus,
 			})),
-		),
+		{ debounce: true },
 	);
 
 	// *** Updaters ***
@@ -159,12 +188,15 @@ export class BarcodeScanningModalComponent
 				...(state.scanResults[barcode.displayValue]
 					? {
 							...state.scanResults[barcode.displayValue],
+							...barcode,
 							count: state.scanResults[barcode.displayValue].count + 1,
+							timestamp: new Date(),
 						}
 					: {
 							...barcode,
 							count: 1,
 							searchStatus: BarcodeSearchStatus.scanned,
+							timestamp: new Date(),
 						}),
 			},
 		},
@@ -213,16 +245,77 @@ export class BarcodeScanningModalComponent
 		),
 	);
 
+	clearCanvas() {
+		const canvasEl: HTMLCanvasElement | undefined = this.canvas?.nativeElement;
+		const cx = canvasEl?.getContext('2d');
+		if (cx && canvasEl) {
+			console.log('clearing canvas', canvasEl.width, canvasEl.height);
+			cx.clearRect(0, 0, canvasEl.width * 2, canvasEl.height * 2);
+		}
+	}
+
+	readonly drawBoxes = this.effect<BarcodeScanResults[]>(
+		(filteredScanResults$) =>
+			filteredScanResults$.pipe(
+				//throttleTime(1000),
+				tap((filteredScanResults) => {
+					console.log('Drawing boxes');
+					const canvasEl: HTMLCanvasElement | undefined =
+						this.canvas?.nativeElement;
+					const cx = canvasEl?.getContext('2d');
+
+					if (!!cx && canvasEl) {
+						cx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+						cx.lineWidth = 1;
+						cx.lineCap = 'round';
+						cx.lineJoin = 'round';
+						cx.strokeStyle = 'yellow';
+
+						filteredScanResults.forEach((filteredScanResult) => {
+							//console.log('!!!!!', filteredScanResult);
+							const cornerPoints = filteredScanResult.cornerPoints;
+
+							const isStale =
+								new Date().getTime() - filteredScanResult.timestamp.getTime() >
+								1000;
+							if (cornerPoints && !isStale) {
+								cx.beginPath();
+								const scale = 0.36;
+								cornerPoints.forEach(([x, y], index) => {
+									index === 0
+										? cx.moveTo(x * scale, y * scale)
+										: cx.lineTo(x * scale, y * scale);
+								});
+								cx.closePath();
+								cx.stroke();
+							}
+						});
+					}
+					console.log('Done drawing boxes');
+				}),
+			),
+	);
+
 	private isMatch(barcodeValue: string) {
 		return barcodeValue.startsWith('S') || barcodeValue.startsWith('CAT');
 	}
 
 	private async stopScan(): Promise<void> {
-		// Show everything behind the modal again
-
-		document.querySelector('body')?.classList.remove('barcode-scanning-active');
+		console.log('stopScan');
 
 		await BarcodeScanner.stopScan();
+		console.log('removeAllListeners');
+
+		await BarcodeScanner.removeAllListeners();
+
+		setTimeout(() => {
+			console.log('clearCanvas');
+			this.clearCanvas();
+			console.log('remove barcode-scanning-active');
+			document
+				.querySelector('body')
+				?.classList.remove('barcode-scanning-active');
+		}, 500);
 	}
 
 	beep(barcodeSearchStatus: BarcodeSearchStatus) {
@@ -233,18 +326,21 @@ export class BarcodeScanningModalComponent
 	constructor(
 		private readonly dialogService: DialogService,
 		private readonly ngZone: NgZone,
+		private el: ElementRef,
 	) {
 		super({
 			scanResults: {},
 		});
 
 		this.searchNewBarcodes(this.newBarcode$);
-		this.barcodesFilteredArray$
-			.pipe(
-				pairwise(),
-				filter(([a, b]) => a.length !== b.length),
-			)
-			.subscribe(() => this.beep(BarcodeSearchStatus.scanned));
+
+		this.drawBoxes(this.barcodesFilteredArray$);
+
+		this.barcodeScanned$
+			.pipe(tap((barcode) => this.updateScanResults(barcode)))
+			.subscribe((barcode) => console.log(barcode));
+
+		this.newBarcode$.subscribe(() => this.beep(BarcodeSearchStatus.scanned));
 	}
 }
 
